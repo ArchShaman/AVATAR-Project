@@ -77,10 +77,8 @@ function widget:GetInfo()
   local globalthreat = 0 -- how scary is the world?
   
   local nodes = {} -- bp nodes
-  local myeco = {buildpower = {cons = 0,nanos = 0, total = 0},
-                 metal = 0,
-                 energy = 0}
-  local mydemand = {bp = 0, expander = 0.5, metal = 0.5, energy = 0} -- priority
+  local mydemand = {bp = 0, expander = 0, metal = 0, energy = 0} -- total demand
+  local priority = {bp = 0, expander = 0.5, metal = 0.5, energy = 0}
   local myteamid = 0
   local mycons = {}
   local mexestable = {}
@@ -496,7 +494,7 @@ end
       if #nodes > 0 then
         for nodeid,data in pairs(nodes) do
           if Spring.IsAABBInView(data.x-1,data.y-1,data.z-1,data.x+1,data.y+1,data.z+1) then
-            
+            -- Nodes will eventually go here.
           end
         end
       end
@@ -720,6 +718,12 @@ end
       --metal--
       local mlv,stor,mpull,minc,mexp,_,_,_ = Spring.GetTeamResources(myteamid,"metal")
       local elv,_,epull,epull,einc,eexp,_,_,_ = Spring.GetTeamResources(myteamid,"energy")
+      if minc-mpull > 0 and facplopped then -- bp demand
+          mydemand.bp = minc-mpull
+      end
+      if einc < math.ceil(minc * 1.05)+2+(epull-minc) + eexp then -- energy demand
+        mydemand.energy = epull + eexp + math.ceil(minc * 1.05)+2
+      end
     end
     if f%10 == 0 then -- Update Con orders
       
