@@ -722,7 +722,7 @@ end
           mydemand.bp = minc-mpull
       end
       if einc < math.ceil(minc * 1.05)+2+(epull-minc) + eexp then -- energy demand
-          mydemand.energy = epull + eexp math.ceil(minc * 1.05)+2
+        mydemand.energy = epull + eexp + math.ceil(minc * 1.05)+2
       end
     end
     if f%10 == 0 then -- Update Con orders
