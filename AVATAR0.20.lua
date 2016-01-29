@@ -48,6 +48,7 @@ function widget:GetInfo()
                           other = 0,
                           buffer = 2}
   local nodes = {}
+  nodes["n"] = 0
   local mycoms = {}
   local mystartpos = {x = 0, y = 0}
   local mode = "debug"
@@ -92,8 +93,6 @@ function widget:GetInfo()
                 hovr   = UnitDefNames["corch"].id}
   
   local globalthreat = 100 -- how scary is the world? 100 = neutral, - 100 = i own the world 200+ = o.o
-  
-  local nodes = {} -- bp nodes
   local mydemand = {bp = 0, expander = 0, energy = 0} -- total demand
   local myteamid = 0
   local mycons = {}
@@ -193,7 +192,7 @@ function widget:GetInfo()
       local isfact,mtype = IsFac(id)
       if isfact then
         local x,y,z = Spring.GetUnitPosition(id)
-        table.insert(nodes,#nodes+1,{bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = id},value = 600})
+        nodes[id] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
       end
     end
   end
@@ -497,6 +496,12 @@ end
         mycons[unitID] = {id = unitID,task = "none",params = {},mtype = "unassigned"}
       end
     end
+    isfac,mtype = IsFac(unitID)
+    if isfac then
+      local x,y,z = Spring.GetUnitPosition(unitID)
+      nodes[unitID] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
+      nodes["n"] = nodes["n"] + 1
+    end
   end
   
   function widget:UnitIdle(unitID, unitDefID, unitTeam)
@@ -506,8 +511,17 @@ end
   end
   
   function widget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
-    if unitTeam == Spring.GetMyTeamID() and IsCom(unitID) then
-      mycoms[unitID] = {id = unitID,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(unitID, "facplop"))}
+    if unitTeam == Spring.GetMyTeamID() then
+      if IsCom(unitID) then
+        mycoms[unitID] = {id = unitID,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(unitID, "facplop"))}
+      end
+      _,_,_,_,bprog = Spring.GetUnitHealth(unitID)
+      isfact,mtype = IsFac(unitID)
+      if isfact and bprog == 1 then
+        local x,y,z = Spring.GetUnitPosition(unitID)
+        nodes[unitID] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
+        nodes["n"] = nodes["n"] + 1
+      end
     end
   end
   
@@ -534,6 +548,12 @@ end
     end
     if mycoms[unitID] then
       mycoms[unitID] = nil
+    end
+    if nodes[unitID] then
+      nodes[unitID] = nil
+    end
+    if mycons[unitID] then
+      mycons[unitID] = nil
     end
   end
   
@@ -701,20 +721,24 @@ end
           end
         end
       end
-      if #nodes > 0 then
-        local x,y,z
+      if nodes then
+        local x,y,z = 0
+        local num = 0
         for id,data in pairs(nodes) do
-          x = data.coords.x
-          y = data.coords.y
-          z = data.coords.z
-          if x and Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
-            gl.PushMatrix()
-            gl.Translate(x,y,z)
-            gl.Billboard()
-            gl.Color(0.75,0.75,0.75,1)
-            gl.Text(data.type .. "-" .. id .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
-            gl.PopMatrix()
-            gl.Color(1,1,1,1)
+          if id ~= "n" then
+            x = data.coords.x
+            y = data.coords.y
+            z = data.coords.z
+            num = num +1
+            if x and Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
+              gl.PushMatrix()
+              gl.Translate(x,y,z)
+              gl.Billboard()
+              gl.Color(0.75,0.75,0.75,1)
+              gl.Text(data.type .. "-" .. num .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
+              gl.PopMatrix()
+              gl.Color(1,1,1,1)
+            end
           end
         end
       end
