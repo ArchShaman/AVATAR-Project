@@ -11,7 +11,10 @@ function widget:GetInfo()
       enabled   = true,
     }
   end
-  
+  local ecoman = false
+  local chckunits
+  local initframe = 0
+  local checkunits = false
   local hasfac = false
   local preload = false
   local floormap = false
@@ -50,16 +53,6 @@ function widget:GetInfo()
   local mode = "debug"
   --variables--
   local reverselookuptab = {}
-  local build = {mex   = (UnitDefNames["cormex"].id)*-1,
-                 solar = (UnitDefNames["armsolar"].id)*-1,
-                 wind  = (UnitDefNames["armwin"].id)*-1,
-                 llt   = (UnitDefNames["corllt"].id)*-1,
-                 def   = (UnitDefNames["corrl"].id)*-1,
-                 radar = (UnitDefNames["corrad"].id)*-1,
-                 nano  = (UnitDefNames["armnanotc"].id)*-1,
-                 urch  = (UnitDefNames["turrettorp"].id)*-1,
-                 star  = (UnitDefNames["armdeva"].id)*-1
-                 } -- Holds all the ai's build stuff. It won't handle the heavier defenses but it will attempt to build stuff.
   
   local builddefs = {mex   = UnitDefNames["cormex"].id,
                  solar = UnitDefNames["armsolar"].id,
@@ -72,6 +65,20 @@ function widget:GetInfo()
                  star  = UnitDefNames["armdeva"].id
                  }
 
+  local factorydefs = {
+    cloak  = UnitDefNames["factorycloak"].id,
+    shield = UnitDefNames["factoryshield"].id,
+    spider = UnitDefNames["factoryspider"].id,
+    hveh   = UnitDefNames["factorytank"].id,
+    lveh   = UnitDefNames["factoryveh"].id,
+    bigbot = UnitDefNames["striderhub"].id,
+    jumper = UnitDefNames["factoryjump"].id,
+    hover  = UnitDefNames["factoryhover"].id,
+    air    = UnitDefNames["factoryplane"].id,
+    gship  = UnitDefNames["factorygunship"].id,
+    ships  = UnitDefNames["factoryship"].id,
+    amphs  = UnitDefNames["factoryamph"].id
+  }
   local cons = {clky   = UnitDefNames["armrectr"].id,
                 tank   = UnitDefNames["coracv"].id,
                 lveh   = UnitDefNames["corned"].id,
@@ -132,6 +139,16 @@ function widget:GetInfo()
     return false
   end
   
+  function IsFac(id)
+    unitDefID = Spring.GetUnitDefID(id)
+    for mtype,facid in pairs(factorydefs) do
+      if facid == unitDefID then
+        return true,mtype
+      end
+    end
+    return false
+  end
+  
   local function SolarOrWind(x,y) -- determine if solar or wind is better at this position.
     local z = Spring.GetGroundHeight(x,y)
     if z <= -10 then
@@ -155,6 +172,29 @@ function widget:GetInfo()
   local function SetFloorMap()
     for id,data in pairs(mexestable) do
       data.threat = data.tfloor
+    end
+  end
+  
+  local function CheckNodes(id)
+    
+  end
+  
+  local function CheckUnits()
+    local myunits = Spring.GetAllUnits(Spring.GetMyTeamID)
+    local unitdefid
+    for _,id in pairs(myunits) do
+      unitdefid = Spring.GetUnitDefID(id)
+      if IsCom(id) then
+        mycoms[id] = {id = id,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(id, "facplop"))}
+      end
+      if IsCon(id) then
+        mycons[id] = {id = id,task = "none",params = {},mtype = "unassigned"}
+      end
+      local isfact,mtype = IsFac(id)
+      if isfact then
+        local x,y,z = Spring.GetUnitPosition(id)
+        table.insert(nodes,#nodes+1,{bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = id},value = 600})
+      end
     end
   end
   
@@ -254,7 +294,6 @@ function widget:GetInfo()
     local ox = x
     local oy = y
     local z = Spring.GetGroundHeight(x,y)
-    btype = btype*-1 -- turn negative into positive
     local result = Spring.TestBuildOrder(btype,x,y,z,0) -- doesnt really matter i think.
     if result == 0 then -- start smart placement
       result,x,y,z = DoSmartPlacement(x,y,btype)
@@ -596,6 +635,9 @@ end
           if data.mtype == "coastal" then
             gl.Color(0.19,0.72,0.65,1)
           end
+          if data.mtype == "shallows" then
+            gl.Color(0.19,0.72,0.45,1)
+          end
           if data.mtype == "isolated" then
             gl.Color(1,1,1,1)
           end
@@ -631,7 +673,24 @@ end
             gl.Translate(x, y, z)
             gl.Billboard()
             gl.Color(0.78, 0.0, 0.78, 1.0)
-            gl.Text(UnitDefs[Spring.GetUnitDefID(data.id)].humanName .. " " .. num .. "\nTask: " .. data.task .. "\nType: " .. data.mtype,-10,-12,10,"v")
+            gl.Text(UnitDefs[Spring.GetUnitDefID(data.id)].humanName .. "-" .. num .. "\nTask: " .. data.task .. "\nType: " .. data.mtype,-10,-12,10,"v")
+            gl.PopMatrix()
+            gl.Color(1,1,1,1)
+          end
+        end
+      end
+      if #nodes > 0 then
+        local x,y,z
+        for id,data in pairs(nodes) do
+          x = data.coords.x
+          y = data.coords.y
+          z = data.coords.z
+          if x and Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
+            gl.PushMatrix()
+            gl.Translate(x,y,z)
+            gl.Billboard()
+            gl.Color(0.75,0.75,0.75,1)
+            gl.Text(data.type .. "-" .. id .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
             gl.PopMatrix()
             gl.Color(1,1,1,1)
           end
@@ -698,7 +757,11 @@ end
     for id,data in pairs(revreach) do --bot,veh,amph,spider
       --Spring.Echo("testing " .. id .." : \nbot: " .. data.bot .. "\nveh: " .. data.veh .. "\namph: " .. data.amph .. "\nspider: " .. data.spider)
       if data.bot == "reach" and data.veh == "reach" then
-        mexestable[tonumber(id)].mtype = "land"
+        if Spring.GetGroundHeight(mexestable[tonumber(id)].x,mexestable[tonumber(id)].z) < 0 then
+          mexestable[tonumber(id)].mtype = "shallows"
+        else
+          mexestable[tonumber(id)].mtype = "land"
+        end
       else
         if data.bot == "reach" and data.veh ~= "reach" and Spring.GetGroundHeight(mexestable[tonumber(id)].x,mexestable[tonumber(id)].z) > 0 then
           mexestable[tonumber(id)].mtype = "hill"
@@ -857,17 +920,12 @@ end
         originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] = originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] - 1
       end
       SetFloorMap()
-      local myunits = Spring.GetAllUnits(Spring.GetMyTeamID)
-      local unitdefid
-      for _,id in pairs(myunits) do
-        unitdefid = Spring.GetUnitDefID(id)
-        if IsCom(id) then
-          mycoms[id] = {id = id,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(id, "facplop"))}
-        end
-        if IsCon(id) then
-          mycons[id] = {id = id,task = "none",params = {},mtype = "unassigned"}
-        end
-      end
+      initframe = f
+      chckunits = coroutine.create(CheckUnits)
+    end
+    if f == initframe + 200 and checkunits == false then
+      coroutine.resume(chckunits)
+      checkunits = true
     end
     if f == 20 and initalized == true then
       Spring.SendCommands("say a: AVATAR v" .. version .. " initalized. Mode: " .. mode)
