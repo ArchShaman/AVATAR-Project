@@ -27,7 +27,7 @@ function widget:GetInfo()
       end
     end
   end
-  
+  local claimedmexes = {}
   local mybasebuilder = 0
   local originalfloormap = {}
   local reachabilitytab = {}
@@ -57,7 +57,7 @@ function widget:GetInfo()
                  star  = (UnitDefNames["armdeva"].id)*-1
                  } -- Holds all the ai's build stuff. It won't handle the heavier defenses but it will attempt to build stuff.
   
-  builddefs = {mex   = UnitDefNames["cormex"].id,
+  local builddefs = {mex   = UnitDefNames["cormex"].id,
                  solar = UnitDefNames["armsolar"].id,
                  wind  = UnitDefNames["armwin"].id,
                  llt   = UnitDefNames["corllt"].id,
@@ -80,11 +80,10 @@ function widget:GetInfo()
                 shld   = UnitDefNames["cornecro"].id,
                 hovr   = UnitDefNames["corch"].id}
   
-  local globalthreat = 100 -- how scary is the world?
+  local globalthreat = 100 -- how scary is the world? 100 = neutral, - 100 = i own the world 200+ = o.o
   
   local nodes = {} -- bp nodes
-  local mydemand = {bp = 0, expander = 0, metal = 0, energy = 0} -- total demand
-  local priority = {bp = 0, expander = 0.5, metal = 0.5, energy = 0}
+  local mydemand = {bp = 0, expander = 0, energy = 0} -- total demand
   local myteamid = 0
   local mycons = {}
   local mexestable = {}
@@ -393,6 +392,19 @@ end
         end
       end
     end
+    if unitTeam == Spring.GetMyTeamID() then
+      for _,id in pairs(cons) do
+        if id == unitDefID then -- it's a valid constructor.
+          mycons[unitID] = {task = "none",params = {}}
+        end
+      end
+    end
+  end
+  
+  function widget:UnitIdle(unitID, unitDefID, unitTeam)
+    if unitTeam == Spring.GetMyTeamID() and mycons[unitID] then
+      AssignTask(unitID)
+    end
   end
   
   function widget:UnitDestroyed(unitID, unitDefID, unitTeam, attackerID, attackerDefID, attackerTeam) -- update "building" / "self" / "enemy" -> "none"
@@ -552,6 +564,10 @@ end
         end
       end
     end
+  end
+  
+  local function AssignTask(unitID)
+    
   end
   
   local function CheckMexes()
