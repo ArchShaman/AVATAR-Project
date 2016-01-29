@@ -23,7 +23,7 @@ function widget:GetInfo()
       if Game.mapX + Game.mapY < 30 then -- medium map iceland is about 1800 for reference. produces a nice grid.
         threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*550
       else -- large map
-        threatdistance = math.ceil((Game.mapX+Game.mapY)/20)*500
+        threatdistance = math.ceil((Game.mapX+Game.mapY)/20)*350
       end
     end
   end
@@ -43,7 +43,7 @@ function widget:GetInfo()
                           other = 0,
                           buffer = 2}
   local nodes = {}
-  local facplopped = false
+  local mycoms = {}
   local mystartpos = {x = 0, y = 0}
   local mode = "debug"
   --variables--
@@ -94,6 +94,31 @@ function widget:GetInfo()
   local threatgrid = {}
   local reversethreat = {}
   local initalized = false
+  
+  local function toboolean(ob)
+    if ob == nil then
+      return false
+    end
+    if ob == "true" then
+      return true
+    end
+    if ob == 1 then
+      return true
+    end
+    if ob == 0 then
+      return false
+    end
+    return false
+  end
+  
+  local function IsCom(id)
+    unitdefid = Spring.GetUnitDefID(id)
+    if UnitDefs[unitdefid].customParams.commtype or UnitDefs[unitdefid].customParams.iscommander then
+      return true
+    else
+      return false
+    end
+  end
   
   local function SolarOrWind(x,y) -- determine if solar or wind is better at this position.
     local z = Spring.GetGroundHeight(x,y)
@@ -409,6 +434,12 @@ end
     end
   end
   
+  function widget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
+    if unitTeam == Spring.GetMyTeamID() and IsCom(unitID) then
+      mycoms[unitID] = {id = unitID,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(unitID, "facplop"))}
+    end
+  end
+  
   function widget:UnitDestroyed(unitID, unitDefID, unitTeam, attackerID, attackerDefID, attackerTeam) -- update "building" / "self" / "enemy" -> "none"
     if unitDefID == UnitDefNames["cormex"].id then
       local x,_,y = Spring.GetUnitPosition(unitID)
@@ -429,6 +460,9 @@ end
       globalthreat = globalthreat + ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost))
     else
       globalthreat = globalthreat - ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost))
+    end
+    if mycoms[unitID] then
+      mycoms[unitID] = nil
     end
   end
   
@@ -561,10 +595,19 @@ end
         end
       end
       gl.BeginEnd(GL.LINES, glDrawLines)
-      if #nodes > 0 then
-        for nodeid,data in pairs(nodes) do
-          if Spring.IsAABBInView(data.x-1,data.y-1,data.z-1,data.x+1,data.y+1,data.z+1) then
-            -- Nodes will eventually go here.
+      if mycoms then
+        local num = 0
+        for _,data in pairs(mycoms) do
+          num = num + 1
+          local x,y,z = Spring.GetUnitPosition(data.id)
+          if Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
+            gl.PushMatrix()
+            gl.Translate(x, y, z)
+            gl.Billboard()
+            gl.Color(0.19, 0.49, 0.68, 1.0)
+            gl.Text("COMMANDER #" .. num .. "\nTask: " .. data.task .. "\nFacplop Avaliable: " .. tostring(data.facplop),-10,-12,14,"v")
+            gl.PopMatrix()
+            gl.Color(1,1,1,1)
           end
         end
       end
@@ -792,8 +835,8 @@ end
       local unitdefid
       for _,id in pairs(myunits) do
         unitdefid = Spring.GetUnitDefID(id)
-        if UnitDefs[unitdefid].customParams.commtype or UnitDefs[unitdefid].customParams.iscommander then
-          basebuilder = id
+        if IsCom(id) then
+          mycoms[id] = {id = id,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(id, "facplop"))}
         end
       end
     end
@@ -806,7 +849,7 @@ end
       local elv,_,epull,einc,eexp,_,_,_ = Spring.GetTeamResources(myteamid,"energy")
       energyexpenses.overdrive = Spring.GetTeamRulesParam(Spring.GetMyTeamID(), "OD_energyOverdrive") or 0
       local effectiveeinc = einc - eexp -energyexpenses.overdrive
-      if (minc-mexp) > effectiveeinc and minc-mexp > 0 then
+      if minc > effectiveeinc and minc-mexp > 0 then
         local timetostall = elv / (minc-effectiveeinc)
         Spring.Echo("[ECOMONITOR] WARNING: metal income outpaces energy income!\nNeeded: " .. minc-effectiveeinc .. "\nTime until stall: " .. timetostall)
       end
@@ -817,13 +860,16 @@ end
       end
       Spring.Echo("[ECOMONITOR] effective E inc: " .. effectiveeinc)
       if effectiveeinc - energyexpenses.buffer < 0 then -- energy demand
-        mydemand.energy =  math.abs(einc - minc -2 + eexp)
+        mydemand.energy = math.abs(effectiveeinc-energyexpenses.buffer-minc)
         Spring.Echo("my energy demand: " .. mydemand.energy)
       end
     end
     if f%90 == 0 then -- Update Threats
       UpdateThreatValues()
       RecalcFloorMap()
+      for id,data in pairs(mycoms) do
+        mycoms[id].facplop = toboolean(Spring.GetUnitRulesParam(id, "facplop"))
+      end
     end
     if f%900 == 0 then
       if globalthreat > 100 then
