@@ -1,2 +1,3 @@
 # AVATAR-Project
-Automatic Expansion / Widget based AI for Zero-K
+
+AVATAR is a widget (UI) based AI which attempts to automate eco management.
