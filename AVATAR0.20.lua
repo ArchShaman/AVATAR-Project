@@ -124,7 +124,6 @@ function widget:GetInfo()
     local distance = 0
     for id,data in pairs(mexestable) do
       reversethreat[id] = {}
-      -- all mexes in a 2000 elmo radius are considered part of a cluster. Closer towards 1000, the less impact a threat on another mex is.
       for id2,data2 in pairs(mexestable) do
         if id2 ~= id then
           if data2.x > data.x then
@@ -199,12 +198,6 @@ function widget:GetInfo()
       mexestable[uid2].threat = mexestable[uid2].threat + (threat * threatgrid[tostring(uid,uid2)].threat)
       if mexestable[uid2].threat < mexestable[uid2].tfloor then
         mexestable[uid2].threat = mexestable[uid2].tfloor
-      end
-      for _,uid3 in pairs(reversethreat[uid2]) do
-        mexestable[uid3].threat = mexestable[uid3].threat + (threat * threatgrid[tostring(uid2,uid3)].threat * threatgrid[tostring(uid,uid2)].threat)
-        if mexestable[uid3].threat < mexestable[uid3].tfloor then
-          mexestable[uid3].threat = mexestable[uid3].tfloor
-        end
       end
     end
   end
@@ -329,7 +322,7 @@ end
     local distance = 0
     local homemex = GetNearestMex(mystartpos.x,mystartpos.y)
     local farmex = GetFurthestMex(mystartpos.x,mystartpos.y)
-    distance = 135/(math.abs(mexestable[homemex].x - mexestable[farmex].x) + math.abs(mexestable[homemex].z-mexestable[farmex].z))
+    distance = 150/(math.abs(mexestable[homemex].x - mexestable[farmex].x) + math.abs(mexestable[homemex].z-mexestable[farmex].z))
     Spring.Echo("[FloorMap] Mult: " .. distance)
     mexestable[homemex].tfloor = 0
     for num,data in pairs(mexestable) do
@@ -378,7 +371,7 @@ end
       local num = reverselookuptab[tostring(x) .. "," .. tostring(y)]
       if Spring.GetUnitAllyTeam(unitID) == Spring.GetMyAllyTeamID() and num ~= nil and mexestable[num].claim == "none" then
         mexestable[num].claim = "ally"
-        UpdateFloorMap(num,-10)
+        UpdateFloorMap(num,-1)
       else
         if num ~= nil and mexestable[num].claim == "none" then
           mexestable[num].claim = "enemy"
@@ -396,7 +389,7 @@ end
       if Spring.GetUnitAllyTeam(unitID) == Spring.GetMyAllyTeamID() then
         UpdateThreatGrid(num,mexestable[num].value * 3)
         mexestable[num].claim = "none"
-        UpdateFloorMap(id,-10)
+        UpdateFloorMap(num,1)
       else
         mexestable[num].claim = "none"
         UpdateFloorMap(num,-15)
@@ -746,7 +739,7 @@ end
       for _,id in pairs(teammexes) do
         local x,_,y = Spring.GetUnitPosition(id)
         mexestable[reverselookuptab[tostring(x) .. "," .. tostring(y)]].claim = "ally"
-        UpdateFloorMap(reverselookuptab[tostring(x) .. "," .. tostring(y)],-10)
+        UpdateFloorMap(reverselookuptab[tostring(x) .. "," .. tostring(y)],-1)
       end
       SetFloorMap()
     end
