@@ -20,10 +20,10 @@ function widget:GetInfo()
     if Game.mapX + Game.mapY < 20 then -- small map
       threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*650
     else
-      if Game.mapX + Game.mapY < 40 then -- medium map iceland is about 1800 for reference. produces a nice grid.
-        threatdistance = math.ceil((Game.mapX+Game.mapY)/15)*600
+      if Game.mapX + Game.mapY < 30 then -- medium map iceland is about 1800 for reference. produces a nice grid.
+        threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*550
       else -- large map
-        threatdistance = math.ceil((Game.mapX+Game.mapY)/15)*500
+        threatdistance = math.ceil((Game.mapX+Game.mapY)/20)*500
       end
     end
   end
@@ -329,7 +329,7 @@ end
     local distance = 0
     local homemex = GetNearestMex(mystartpos.x,mystartpos.y)
     local farmex = GetFurthestMex(mystartpos.x,mystartpos.y)
-    distance = 150/(math.abs(mexestable[homemex].x - mexestable[farmex].x) + math.abs(mexestable[homemex].z-mexestable[farmex].z))
+    distance = 135/(math.abs(mexestable[homemex].x - mexestable[farmex].x) + math.abs(mexestable[homemex].z-mexestable[farmex].z))
     Spring.Echo("[FloorMap] Mult: " .. distance)
     mexestable[homemex].tfloor = 0
     for num,data in pairs(mexestable) do
@@ -616,7 +616,7 @@ end
                   mexestable[tonumber(id)].mtype = "sea"
                 else
                   mexestable[tonumber(id)].mtype = "isolated"
-                  Spring.Echo("Isolation chec:\nbot: " .. data.bot .. "\nveh: " .. data.veh .. "\namph: " .. data.amph .. "\nspider: " .. data.spider)
+                  Spring.Echo("Isolation check:\nbot: " .. data.bot .. "\nveh: " .. data.veh .. "\namph: " .. data.amph .. "\nspider: " .. data.spider)
                 end
               end
             end
