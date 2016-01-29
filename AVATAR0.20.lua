@@ -267,7 +267,29 @@ function widget:GetInfo()
   end
   
   local function DoSmartPlacement(x,y,btype)
-    local footx,footy = 0
+    local footx,footy = 0 -- foot is 16 elmos big.
+    footx = UnitDefs[btype].footprintX * 16
+    footy = UnitDefs[btype].footprintZ * 16
+    Spring.Echo("Building is " .. footx,footy)
+    local xtry,ytry = -1
+    local z = 0
+    local result = 0
+    for i=1,10 do
+      x = ox+(footx*16*xtry)
+      y = oy+(footz*16*ytry)
+      xtry = xtry + 1
+      if xtry == 2 then
+        xtry = -1
+        ytry = ytry + 1
+      end
+      Spring.Echo("[SMARTBUILD] Trying " .. x,y)
+      z = Spring.GetGroundHeight(x,y)
+      result = Spring.TestBuildOrder(btype,x,z,y,0)
+      if result ~= 0 then
+        return result,x,z,y
+      end
+    end
+    return 0,ox,oy
   end
   
   local function UpdateFloorMap(uid,threat)
