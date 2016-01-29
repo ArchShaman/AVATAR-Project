@@ -29,7 +29,7 @@ function widget:GetInfo()
   end
   
   local mybasebuilder = 0
-  
+  local originalfloormap = {}
   local reachabilitytab = {}
   local maxvalue = 0
   local minvalue = 99999
@@ -80,7 +80,7 @@ function widget:GetInfo()
                 shld   = UnitDefNames["cornecro"].id,
                 hovr   = UnitDefNames["corch"].id}
   
-  local globalthreat = 0 -- how scary is the world?
+  local globalthreat = 100 -- how scary is the world?
   
   local nodes = {} -- bp nodes
   local mydemand = {bp = 0, expander = 0, metal = 0, energy = 0} -- total demand
@@ -117,6 +117,16 @@ function widget:GetInfo()
   local function SetFloorMap()
     for id,data in pairs(mexestable) do
       data.threat = data.tfloor
+    end
+  end
+  
+  local function RecalcFloorMap()
+    for id,data in pairs(mexestable) do
+      if globalthreat > 100 then
+        data.tfloor = originalfloormap[id] + ((globalthreat/100)+1)
+      elseif globalthreat < 100 then
+        data.tfloor = originalfloormap[id] - math.abs((globalthreat/100))
+      end
     end
   end
   
@@ -327,6 +337,7 @@ end
     mexestable[homemex].tfloor = 0
     for num,data in pairs(mexestable) do
       data.tfloor = (math.abs(mexestable[homemex].x-data.x) + math.abs(mexestable[homemex].z-data.z))*distance
+      originalfloormap[num] = data.tfloor
     end
     floormap = true
   end
@@ -362,6 +373,7 @@ end
       end
       mexestable[num].claim = "enemy"
       UpdateFloorMap(num,15)
+      originalfloormap[num] = originalfloormap[num] + 15
     end
   end
   
@@ -372,10 +384,12 @@ end
       if Spring.GetUnitAllyTeam(unitID) == Spring.GetMyAllyTeamID() and num ~= nil and mexestable[num].claim == "none" then
         mexestable[num].claim = "ally"
         UpdateFloorMap(num,-1)
+        originalfloormap[num] = originalfloormap[num] - 1
       else
         if num ~= nil and mexestable[num].claim == "none" then
           mexestable[num].claim = "enemy"
           UpdateFloorMap(num,15)
+          originalfloormap[num] = originalfloormap[num] + 15
         end
       end
     end
@@ -390,10 +404,17 @@ end
         UpdateThreatGrid(num,mexestable[num].value * 3)
         mexestable[num].claim = "none"
         UpdateFloorMap(num,1)
+        originalfloormap[num] = originalfloormap[num] + 1
       else
         mexestable[num].claim = "none"
         UpdateFloorMap(num,-15)
+        originalfloormap[num] = originalfloormap[num]-15
       end
+    end
+    if Spring.GetUnitAllyTeam(unitTeam) == Spring.GetMyAllyTeamID() then
+      globalthreat = globalthreat + ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost))
+    else
+      globalthreat = globalthreat - ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost))
     end
   end
   
@@ -408,8 +429,8 @@ end
           --Spring.SendCommands("say s: [Debug] Mex ID " .. unitID .. " got (" .. x .. "," .. y .. "). Reverse look up shows: " .. num .. ".")
           if mexestable[num].x == x and mexestable[num].z == y then
             --Spring.SendCommands("say s: [Debug] Mex ID " .. unitID .. " Verified successfully. Code is working.")
-            UpdateThreatGrid(num,damage/(150/mexestable[num].value))
-            globalthreat = globalthreat + (damage/2000)
+            UpdateThreatGrid(num,damage/(150*mexestable[num].value))
+            globalthreat = globalthreat + (damage/(500*mexestable[num].value)+0.25)
           else
             Spring.SendCommands("say s: [Debug:Abnormality] Mex ID " .. unitID .. " Failed verification. Check code.")
           end
@@ -736,10 +757,11 @@ end
           table.insert(teammexes,id2)
         end
       end
-      for _,id in pairs(teammexes) do
-        local x,_,y = Spring.GetUnitPosition(id)
+      for _,id2 in pairs(teammexes) do
+        local x,_,y = Spring.GetUnitPosition(id2)
         mexestable[reverselookuptab[tostring(x) .. "," .. tostring(y)]].claim = "ally"
         UpdateFloorMap(reverselookuptab[tostring(x) .. "," .. tostring(y)],-1)
+        originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] = originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] - 1
       end
       SetFloorMap()
     end
@@ -760,10 +782,32 @@ end
     if f%10 == 0 then -- Update Con orders
       
     end
-    if f%600 == 0 then -- Update Threats
-      if globalthreat > 0 then
-        globalthreat = globalthreat * 0.87 -- lose 13% of the threat value every 2 seconds.
-      end
+    if f%90 == 0 then -- Update Threats
       UpdateThreatValues()
+      RecalcFloorMap()
+    end
+    if f%900 == 0 then
+      if globalthreat > 100 then
+        if globalthreat*0.9 < 0.3 and globalthreat > 100 then
+          globalthreat = 100
+        elseif globalthreat > 100 then
+          if globalthreat - (globalthreat*0.9) < 100 then
+            globalthreat = 100
+          end
+          globalthreat = globalthreat - (globalthreat*0.9)
+        end
+      else
+        if globalthreat < 0 and globalthreat <= 99 then
+          if globalthreat + math.abs(globalthreat*0.9) + globalthreat +2 > 100 then
+            globalthreat = 100
+          end
+          globalthreat = math.abs(globalthreat*0.9) + globalthreat +2
+        elseif globalthreat > 0 and globalthreat < 100 then
+          globalthreat = globalthreat + (globalthreat*0.9) +0.5
+        end
+      end
+      if globalthreat < - 100 then
+        globalthreat = -100
+      end
     end
   end
