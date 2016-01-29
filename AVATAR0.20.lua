@@ -14,15 +14,21 @@ function widget:GetInfo()
   local preload = false
   local floormap = false
   local threatdistance = 0
-  if Game.mapX + Game.mapY < 20 then -- small map
-    threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*750
+  if Game.mapX + Game.mapY < 10 then -- tiny map!
+    threatdistance = 600
   else
-    if Game.mapX + Game.mapY < 40 then -- medium map iceland is about 1800 for reference. produces a nice grid.
-      threatdistance = math.ceil((Game.mapX+Game.mapY)/14)*600
-    else -- large map
-      threatdistance = math.ceil((Game.mapX+Game.mapY)/15)*500
+    if Game.mapX + Game.mapY < 20 then -- small map
+      threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*650
+    else
+      if Game.mapX + Game.mapY < 40 then -- medium map iceland is about 1800 for reference. produces a nice grid.
+        threatdistance = math.ceil((Game.mapX+Game.mapY)/15)*600
+      else -- large map
+        threatdistance = math.ceil((Game.mapX+Game.mapY)/15)*500
+      end
     end
   end
+  
+  local mybasebuilder = 0
   
   local reachabilitytab = {}
   local maxvalue = 0
@@ -421,7 +427,40 @@ end
   
   local function glDrawLines()
     local x1, y1, z1, x2, y2, z2
-    --for do
+    local alreadydrawn = {}
+    for id,data in pairs(reversethreat) do
+      for _,id2 in pairs(data) do
+        if alreadydrawn[tostring(id) .. "," .. tostring(id2)] == nil then
+          alreadydrawn[tostring(id) .. "," .. tostring(id2)] = 1
+          x1 = mexestable[id].x
+          y1 = mexestable[id].y
+          z1 = mexestable[id].z
+          x2 = mexestable[id2].x
+          y2 = mexestable[id2].y
+          z2 = mexestable[id2].z
+          if mexestable[id].claim == "ally" then
+            gl.Color(0,1,0,1)
+          else
+            if mexestable[id].claim == "none" or mexestable[id].claim == "unviable" then
+              gl.Color(1,1,1,1)
+            else
+              gl.Color(1,0,0,1)
+            end
+          end
+          gl.Vertex(x1, y1, z1)
+          if mexestable[id2].claim == "ally" then
+            gl.Color(0,1,0,1)
+          else
+            if mexestable[id2].claim == "none" or mexestable[id2].claim == "unviable" then
+              gl.Color(1,1,1,1)
+            else
+              gl.Color(1,0,0,1)
+            end
+          end
+          gl.Vertex(x2, y2, z2)
+        end
+      end
+    end
   end
   
   function widget:DrawWorld() -- handle debug stuff.
@@ -490,7 +529,7 @@ end
           gl.Color(1,1,1,1)
         end
       end
-      --glBeginEnd(GL.LINES, glDrawLines)
+      gl.BeginEnd(GL.LINES, glDrawLines)
       if #nodes > 0 then
         for nodeid,data in pairs(nodes) do
           if Spring.IsAABBInView(data.x-1,data.y-1,data.z-1,data.x+1,data.y+1,data.z+1) then
