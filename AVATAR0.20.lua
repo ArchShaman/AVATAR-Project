@@ -1,4 +1,4 @@
-local version = "0.20"
+local version = "0.21"
 
 function widget:GetInfo()
     return {
@@ -39,7 +39,9 @@ function widget:GetInfo()
                      spider = {id = UnitDefNames["arm_spider"].moveDef.id, tar = 220}}
   local antiscythe = 0 -- higher = engage anti-scyhte protocal
   local seenscythes = {} -- so we don't repeatedly increase anti-scythe
-  
+  local energyexpenses = {overdrive = 0,
+                          other = 0,
+                          buffer = 2}
   local nodes = {}
   local facplopped = false
   local mystartpos = {x = 0, y = 0}
@@ -780,6 +782,14 @@ end
         originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] = originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] - 1
       end
       SetFloorMap()
+      local myunits = Spring.GetAllUnits(Spring.GetMyTeamID)
+      local unitdefid
+      for _,id in pairs(myunits) do
+        unitdefid = Spring.GetUnitDefID(id)
+        if UnitDefs[unitdefid].customParams.commtype or UnitDefs[unitdefid].customParams.iscommander then
+          basebuilder = id
+        end
+      end
     end
     if f == 20 and initalized == true then
       Spring.SendCommands("say a: AVATAR v" .. version .. " initalized. Mode: " .. mode)
@@ -787,16 +797,23 @@ end
     if f%15 == 0 then -- Update Eco Demand
       --metal--
       local mlv,stor,mpull,minc,mexp,_,_,_ = Spring.GetTeamResources(myteamid,"metal")
-      local elv,_,epull,epull,einc,eexp,_,_,_ = Spring.GetTeamResources(myteamid,"energy")
-      if minc-mpull > 0 and facplopped then -- bp demand
-          mydemand.bp = minc-mpull
+      local elv,_,epull,einc,eexp,_,_,_ = Spring.GetTeamResources(myteamid,"energy")
+      energyexpenses.overdrive = Spring.GetTeamRulesParam(Spring.GetMyTeamID(), "OD_energyOverdrive") or 0
+      local effectiveeinc = einc - eexp -energyexpenses.overdrive
+      if (minc-mexp) > effectiveeinc and minc-mexp > 0 then
+        local timetostall = elv / (minc-effectiveeinc)
+        Spring.Echo("[ECOMONITOR] WARNING: metal income outpaces energy income!\nNeeded: " .. minc-effectiveeinc .. "\nTime until stall: " .. timetostall)
       end
-      if einc < math.ceil(minc * 1.05)+2+(epull-minc) + eexp then -- energy demand
-        mydemand.energy = epull + eexp + math.ceil(minc * 1.05)+2
+      energyexpenses.buffer = math.ceil(minc * 0.2) + 2
+      if minc-mexp > 0 and facplopped then -- bp demand
+        mydemand.bp = minc-mpull-myeco.bp
+        Spring.Echo("[ECOMONITOR] BP needed: " .. mydemand.bp)
       end
-    end
-    if f%10 == 0 then -- Update Con orders
-      
+      Spring.Echo("[ECOMONITOR] effective E inc: " .. effectiveeinc)
+      if effectiveeinc - energyexpenses.buffer < 0 then -- energy demand
+        mydemand.energy =  math.abs(einc - minc -2 + eexp)
+        Spring.Echo("my energy demand: " .. mydemand.energy)
+      end
     end
     if f%90 == 0 then -- Update Threats
       UpdateThreatValues()
