@@ -1,4 +1,4 @@
-local version = "0.21"
+local version = "0.20"
 
 function widget:GetInfo()
     return {
@@ -547,7 +547,10 @@ end
             gl.Color(0,1,1,1)
           end
           if data.mtype == "island" then
-            gl.Color(0.37,0.58,0.7,1)
+            gl.Color(0.19,0.72,1,1)
+          end
+          if data.mtype == "coastal" then
+            gl.Color(0.19,0.72,0.65,1)
           end
           if data.mtype == "isolated" then
             gl.Color(1,1,1,1)
@@ -637,6 +640,9 @@ end
             if data.bot ~= "reach" and data.veh ~= "reach" and data.amph == "reach" then
               if Spring.GetGroundHeight(mexestable[tonumber(id)].x,mexestable[tonumber(id)].z) > 0 then
                 mexestable[tonumber(id)].mtype = "island"
+                if data.spider == "reach" then
+                  mexestable[tonumber(id)].mtype = "coastal"
+                end
               else
                 mexestable[tonumber(id)].mtype = "sea"
               end
