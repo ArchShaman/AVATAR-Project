@@ -11,6 +11,8 @@ function widget:GetInfo()
       enabled   = true,
     }
   end
+  
+  local hasfac = false
   local preload = false
   local floormap = false
   local threatdistance = 0
@@ -23,7 +25,7 @@ function widget:GetInfo()
       if Game.mapX + Game.mapY < 30 then -- medium map iceland is about 1800 for reference. produces a nice grid.
         threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*550
       else -- large map
-        threatdistance = math.ceil((Game.mapX+Game.mapY)/20)*350
+        threatdistance = math.ceil((Game.mapX+Game.mapY)/15)*450
       end
     end
   end
@@ -118,6 +120,16 @@ function widget:GetInfo()
     else
       return false
     end
+  end
+  
+  local function IsCon(id)
+    unitDefID = Spring.GetUnitDefID(id)
+    for _,conid in pairs(cons) do
+      if conid == unitDefID then -- it's a valid constructor.
+        return true
+      end
+    end
+    return false
   end
   
   local function SolarOrWind(x,y) -- determine if solar or wind is better at this position.
@@ -420,17 +432,15 @@ end
       end
     end
     if unitTeam == Spring.GetMyTeamID() then
-      for _,id in pairs(cons) do
-        if id == unitDefID then -- it's a valid constructor.
-          mycons[unitID] = {task = "none",params = {}}
-        end
+      if IsCon(unitID) then
+        mycons[unitID] = {id = unitID,task = "none",params = {},mtype = "unassigned"}
       end
     end
   end
   
   function widget:UnitIdle(unitID, unitDefID, unitTeam)
     if unitTeam == Spring.GetMyTeamID() and mycons[unitID] then
-      AssignTask(unitID)
+--      AssignTask(unitID)
     end
   end
   
@@ -526,7 +536,7 @@ end
   end
   
   function widget:DrawWorld() -- handle debug stuff.
-    if initalized == true then
+    if initalized == true and mode == "debug" then
       for mex,data in pairs(mexestable) do
         if Spring.IsAABBInView(data.x-1,data.y-1,data.z-1,data.x+1,data.y+1,data.z+1) then
           gl.PushMatrix()
@@ -596,16 +606,32 @@ end
       end
       gl.BeginEnd(GL.LINES, glDrawLines)
       if mycoms then
-        local num = 0
+        local num,x,y,z = 0
         for _,data in pairs(mycoms) do
           num = num + 1
-          local x,y,z = Spring.GetUnitPosition(data.id)
+          x,y,z = Spring.GetUnitPosition(data.id)
           if Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
             gl.PushMatrix()
             gl.Translate(x, y, z)
             gl.Billboard()
             gl.Color(0.19, 0.49, 0.68, 1.0)
             gl.Text("COMMANDER #" .. num .. "\nTask: " .. data.task .. "\nFacplop Avaliable: " .. tostring(data.facplop),-10,-12,14,"v")
+            gl.PopMatrix()
+            gl.Color(1,1,1,1)
+          end
+        end
+      end
+      if mycons then
+        local num,x,y,z = 0
+        for _,data in pairs(mycons) do
+          num = num + 1
+          x,y,z = Spring.GetUnitPosition(data.id)
+          if Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
+            gl.PushMatrix()
+            gl.Translate(x, y, z)
+            gl.Billboard()
+            gl.Color(0.78, 0.0, 0.78, 1.0)
+            gl.Text(UnitDefs[Spring.GetUnitDefID(data.id)].humanName .. " " .. num .. "\nTask: " .. data.task .. "\nType: " .. data.mtype,-10,-12,10,"v")
             gl.PopMatrix()
             gl.Color(1,1,1,1)
           end
@@ -837,6 +863,9 @@ end
         unitdefid = Spring.GetUnitDefID(id)
         if IsCom(id) then
           mycoms[id] = {id = id,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(id, "facplop"))}
+        end
+        if IsCon(id) then
+          mycons[id] = {id = id,task = "none",params = {},mtype = "unassigned"}
         end
       end
     end
