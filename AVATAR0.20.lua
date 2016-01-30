@@ -11,6 +11,8 @@ function widget:GetInfo()
       enabled   = true,
     }
   end
+  local checkmexes
+  local maxeco = 5 -- 5x energy!
   local facplopped = false
   local chckunits
   local initframe = 0
@@ -63,8 +65,14 @@ function widget:GetInfo()
                  nano  = UnitDefNames["armnanotc"].id,
                  urch  = UnitDefNames["turrettorp"].id,
                  star  = UnitDefNames["armdeva"].id,
-                 stor  = UnitDefNames["armmstor"].id
+                 stor  = UnitDefNames["armmstor"].id,
+                 singu = UnitDefNames["cafus"].id
                  }
+  
+  local defenseval = {llt  = 15,
+                      star = 45,
+                      def  = 12,
+                      urch = 12}
 
   local factorydefs = {
     cloak  = UnitDefNames["factorycloak"].id,
@@ -175,7 +183,18 @@ function widget:GetInfo()
   end
   
   local function CheckNodes(id)
-    
+    local x,y,z = Spring.GetUnitPosition(id)
+    local nearbyunits = Spring.GetUnitsInSphere(x,y,z,600,Spring.GetMyTeamID()) -- x,y,z,radius,myteam
+    local unitdefid = 0
+    for _,myid in pairs(nearbyunits) do
+      unitdefid = Spring.GetUnitDefID(myid)
+      if unitdefid == builddefs.nano then
+        nodes[id].bp.bp = nodes[id].bp.bp + 10
+      end
+      if unitdefid == builddefs.llt then
+        nodes[id].defense = nodes[id].defense + defenseval.llt
+      end
+    end
   end
   
   local function CheckUnits()
@@ -356,8 +375,8 @@ function widget:GetInfo()
     for num,data in pairs(mexestable) do
       if data.claimed == "none" then
         reachable = IsTargetReachable(moveid,x,z,y,data.x,data.y,data.z,90)
-        distance = ((ox - tx)^2 + (oz - tz)^2)^0.5
-        if distance < closestdistance then
+        distance = ((ox - tx)^2 + (oz - tz)^2)^0.5 / (data.value*0.85)
+        if distance < closestdistance and reachable == "reach" then
           closest = num
         end
       end
@@ -756,12 +775,14 @@ end
     local revreach = {}
     local myname = ""
     local result
+    local num = 0
     for name,data in pairs(movetypes) do
       reachable[name] = {}
       myname = name
       for id,data2 in pairs(mexestable) do
         Spring.Echo("Testing mex id " .. id)
         if id ~= nil then
+          num = num + 1
           if revreach[id] == nil then
            revreach[id] = {bot = "?",veh = "?",amph = "?", spider = "?"}
           end
@@ -791,6 +812,10 @@ end
               revreach[id].spider = "outofreach"
             end
           end
+        end
+        if num == 10 then
+          num = 0
+          coroutine.yield() -- yield until next frame
         end
       end
     end
@@ -942,7 +967,6 @@ end
       widgetHandler:RemoveWidget()
     end
     Spring.Echo("[AVATAR] Post-init started.")
-    CheckMexes()
     initialized = true
   end
   
@@ -951,7 +975,8 @@ end
       Spring.Echo("[AVATAR] Post-Initialization started")
       mystartpos.x,_,mystartpos.y = Spring.GetTeamStartPosition(myteamid)
       CreateFloorMap()
-      CheckMexes()
+      checkmexes = coroutine.create(CheckMexes)
+      coroutine.resume(checkmexes)
       local teammexes = {}
       local myallies = Spring.GetTeamList(Spring.GetMyAllyTeamID())
       for id,_ in pairs(myallies) do
@@ -970,6 +995,9 @@ end
       SetFloorMap()
       initframe = f
       chckunits = coroutine.create(CheckUnits)
+    end
+    if tostring(coroutine.status(checkmexes)) == "suspended" then
+      coroutine.resume(checkmexes)
     end
     if f == initframe + 200 and checkunits == false then
       coroutine.resume(chckunits)
