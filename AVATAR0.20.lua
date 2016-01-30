@@ -11,7 +11,7 @@ function widget:GetInfo()
       enabled   = true,
     }
   end
-  local ecoman = false
+  local facplopped = false
   local chckunits
   local initframe = 0
   local checkunits = false
@@ -48,7 +48,6 @@ function widget:GetInfo()
                           other = 0,
                           buffer = 2}
   local nodes = {}
-  nodes["n"] = 0
   local mycoms = {}
   local mystartpos = {x = 0, y = 0}
   local mode = "debug"
@@ -63,7 +62,8 @@ function widget:GetInfo()
                  radar = UnitDefNames["corrad"].id,
                  nano  = UnitDefNames["armnanotc"].id,
                  urch  = UnitDefNames["turrettorp"].id,
-                 star  = UnitDefNames["armdeva"].id
+                 star  = UnitDefNames["armdeva"].id,
+                 stor  = UnitDefNames["armmstor"].id
                  }
 
   local factorydefs = {
@@ -102,7 +102,7 @@ function widget:GetInfo()
   local threatgrid = {}
   local reversethreat = {}
   local initalized = false
-  
+  local myassignedcons = {total = {defense = 0,expansion = 0,eco = 0,grid = 0, unassigned = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
   local function toboolean(ob)
     if ob == nil then
       return false
@@ -349,20 +349,17 @@ function widget:GetInfo()
   local function GetNearestReachableMex(unitID)
     local defid = Spring.GetUnitDefID(unitID)
     local x,z,y = Spring.GetUnitPosition(unitID)
-    local distances = {}
+    local distance,closest = 0
+    local closestdistance = 99999999
+    local moveid = UnitDefs[defid].moveDef.id
+    local reachable
     for num,data in pairs(mexestable) do
       if data.claimed == "none" then
-        if x > data.x then
-          distances[num] = x - data.x
-        else
-          distances[num] = data.x - x
+        reachable = IsTargetReachable(moveid,x,z,y,data.x,data.y,data.z,90)
+        distance = ((ox - tx)^2 + (oz - tz)^2)^0.5
+        if distance < closestdistance then
+          closest = num
         end
-        if y > data.z then
-          distances[num] = distances[num] + (y - data.z)
-        else
-          distances[num] = distances[num] + (data.z - y)
-        end
-        distances[num] = distances[num] * data.value
       end
     end
   end
@@ -492,15 +489,15 @@ end
       end
     end
     if unitTeam == Spring.GetMyTeamID() then
-      if IsCon(unitID) then
+      if IsCon(unitID) and mycons[unitID] == nil then
         mycons[unitID] = {id = unitID,task = "none",params = {},mtype = "unassigned"}
+        myassignedcons.total.unassigned = myassignedcons.total.unassigned + 1
       end
     end
     isfac,mtype = IsFac(unitID)
     if isfac then
       local x,y,z = Spring.GetUnitPosition(unitID)
       nodes[unitID] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
-      nodes["n"] = nodes["n"] + 1
     end
   end
   
@@ -520,7 +517,6 @@ end
       if isfact and bprog == 1 then
         local x,y,z = Spring.GetUnitPosition(unitID)
         nodes[unitID] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
-        nodes["n"] = nodes["n"] + 1
       end
     end
   end
@@ -725,7 +721,6 @@ end
         local x,y,z = 0
         local num = 0
         for id,data in pairs(nodes) do
-          if id ~= "n" then
             x = data.coords.x
             y = data.coords.y
             z = data.coords.z
@@ -738,7 +733,6 @@ end
               gl.Text(data.type .. "-" .. num .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
               gl.PopMatrix()
               gl.Color(1,1,1,1)
-            end
           end
         end
       end
@@ -746,7 +740,15 @@ end
   end
   
   local function AssignTask(unitID)
-    
+    if mycons[unitID] then
+      if mycons[unitID].mtype == "unassigned" then -- assign con job archetype -- myycons[unitID] = {id = unitID,task = "none",params = {},mtype = "unassigned"}
+        --{total = {defense = 0,expansion = 0,eco = 0,grid = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
+      end
+    else
+      if mycoms[unitID] then
+        
+      end
+    end
   end
   
   local function CheckMexes()
@@ -981,19 +983,28 @@ end
       local mlv,stor,mpull,minc,mexp,_,_,_ = Spring.GetTeamResources(myteamid,"metal")
       local elv,_,epull,einc,eexp,_,_,_ = Spring.GetTeamResources(myteamid,"energy")
       energyexpenses.overdrive = Spring.GetTeamRulesParam(Spring.GetMyTeamID(), "OD_energyOverdrive") or 0
-      local effectiveeinc = einc - eexp -energyexpenses.overdrive
+      local bpcost = 0
+      if mpull > 0 then -- I'm building something somewhere.
+        if mpull > minc then
+          bpcost = minc
+        else
+          bpcost = mpull
+        end
+      end
+      Spring.Echo("bp used: " .. bpcost)
+      local effectiveeinc = einc -energyexpenses.overdrive - bpcost
       if minc > effectiveeinc and minc-mexp > 0 then
         local timetostall = elv / (minc-effectiveeinc)
         Spring.Echo("[ECOMONITOR] WARNING: metal income outpaces energy income!\nNeeded: " .. minc-effectiveeinc .. "\nTime until stall: " .. timetostall)
       end
-      energyexpenses.buffer = math.ceil(minc * 0.2) + 2
-      if minc-mexp > 0 and facplopped then -- bp demand
-        mydemand.bp = minc-mpull-myeco.bp
+      energyexpenses.buffer = math.ceil(minc * 0.2)
+      if minc-mpull > 0 and facplopped then -- bp demand
+        mydemand.bp = minc-mpull
         Spring.Echo("[ECOMONITOR] BP needed: " .. mydemand.bp)
       end
       Spring.Echo("[ECOMONITOR] effective E inc: " .. effectiveeinc)
       if effectiveeinc - energyexpenses.buffer < 0 then -- energy demand
-        mydemand.energy = math.abs(effectiveeinc-energyexpenses.buffer-minc)
+        mydemand.energy = math.abs(effectiveeinc-energyexpenses.buffer)
         Spring.Echo("my energy demand: " .. mydemand.energy)
       end
     end
