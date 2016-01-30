@@ -11,6 +11,7 @@ function widget:GetInfo()
       enabled   = true,
     }
   end
+  local potentialmexes = 0
   local checkmexes
   local maxeco = 5 -- 5x energy!
   local facplopped = false
@@ -34,6 +35,7 @@ function widget:GetInfo()
       end
     end
   end
+  local stalling = false
   local claimedmexes = {}
   local mybasebuilder = 0
   local originalfloormap = {}
@@ -110,7 +112,7 @@ function widget:GetInfo()
   local threatgrid = {}
   local reversethreat = {}
   local initalized = false
-  local myassignedcons = {total = {defense = 0,expansion = 0,eco = 0,grid = 0, unassigned = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
+  local myassignedcons = {total = {defense = 0,expansion = 0,eco = 0,grid = 0, unassigned = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0, emergency = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
   local function toboolean(ob)
     if ob == nil then
       return false
@@ -125,6 +127,18 @@ function widget:GetInfo()
       return false
     end
     return false
+  end
+  
+  local function max(tab)
+    local max = -99999
+    local maxv
+    for k,v in pairs(tab) do
+      if v > max then
+        max = v
+        maxv = tostring(k)
+      end
+    end
+    return max,maxv
   end
   
   local function IsCom(id)
@@ -269,6 +283,25 @@ function widget:GetInfo()
     return close
   end
   
+  local function GetNearestReachableMexSolar(unitID)
+    local defid = Spring.GetUnitDefID(unitID)
+    local x,z,y = Spring.GetUnitPosition(unitID)
+    local distance,closest = 0
+    local closestdistance = 99999999
+    local moveid = UnitDefs[defid].moveDef.id
+    local reachable
+    for num,data in pairs(mexestable) do
+      if data.claimed == "ally" and data.solared == false then
+        reachable = IsTargetReachable(moveid,x,z,y,data.x,data.y,data.z,90)
+        distance = ((ox - tx)^2 + (oz - tz)^2)^0.5 / (data.value*0.85)
+        if distance < closestdistance and reachable == "reach" then
+          closest = num
+        end
+      end
+    end
+    return closest
+  end
+  
   local function GetFurthestMex(x,y)
     local distance = 0
     local furthest = 0
@@ -381,6 +414,7 @@ function widget:GetInfo()
         end
       end
     end
+    return closest
   end
   
   local function UseUrchin(x,y)
@@ -740,18 +774,18 @@ end
         local x,y,z = 0
         local num = 0
         for id,data in pairs(nodes) do
-            x = data.coords.x
-            y = data.coords.y
-            z = data.coords.z
-            num = num +1
-            if x and Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
-              gl.PushMatrix()
-              gl.Translate(x,y,z)
-              gl.Billboard()
-              gl.Color(0.75,0.75,0.75,1)
-              gl.Text(data.type .. "-" .. num .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
-              gl.PopMatrix()
-              gl.Color(1,1,1,1)
+          x = data.coords.x
+          y = data.coords.y
+          z = data.coords.z
+          num = num +1
+          if x and Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
+            gl.PushMatrix()
+            gl.Translate(x,y,z)
+            gl.Billboard()
+            gl.Color(0.75,0.75,0.75,1)
+            gl.Text(data.type .. "-" .. num .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
+            gl.PopMatrix()
+            gl.Color(1,1,1,1)
           end
         end
       end
@@ -761,11 +795,28 @@ end
   local function AssignTask(unitID)
     if mycons[unitID] then
       if mycons[unitID].mtype == "unassigned" then -- assign con job archetype -- myycons[unitID] = {id = unitID,task = "none",params = {},mtype = "unassigned"}
-        --{total = {defense = 0,expansion = 0,eco = 0,grid = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
+        local _,best = max(myassignedcons.wanted) --{total = {defense = 0,expansion = 0,eco = 0,grid = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0,emergency = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
+        if best == "emergency" then
+          best = "eco"
+        end
+        mycons[unitID].mtype = best
+        myassignedcons.wanted[best] = myassignedcons.wanted[best] - UnitDefs[Spring.GetUnitDefID(unitID)].buildSpeed
+        myassignedcons.total[best] = myassignedcons.total[best] + UnitDefs[Spring.GetUnitDefID(unitID)].buildSpeed
       end
-    else
-      if mycoms[unitID] then
-        
+      if mycons[unitID].mtype == "expansion" and stalling ~= true then
+        local mexid = GetNearestReachableMex(unitID)
+        mexestable[mexid].claim = "targeted"
+        mycons[unitID].params = {id = mexid}
+        mycons[unitID].task = "expand @ " .. mexid
+      else
+        if stalling == true then
+          mycons[unitID].task = "emergency anti-stall"
+          local x,y,z = Spring.GetUnitPosition(unitID)
+          mycons[unitID].params = {x = x,y = y,z = z}
+        end
+        if mycons[unitID].mtype == "eco" then
+          if --{CMD_PRIORITY, {priority}, {"shift"}}
+        end
       end
     end
   end
@@ -898,7 +949,7 @@ end
       for i=1, #mexes do
         Spring.Echo("Init: Metal spot " .. i .. ":\nx = " .. mexes[i].x .. "\ny = " .. mexes[i].z .. "\nincome: " .. mexes[i].metal)
         totalmetal = totalmetal + mexes[i].metal
-        mexestable[#mexestable+1] = {claim = "none",x = mexes[i].x,y = mexes[i].y, z = mexes[i].z, inc = mexes[i].metal, threat = 0, value = 0,tfloor = 0, mtype = "?"} -- just adding a claimer and threat.
+        mexestable[#mexestable+1] = {claim = "none",x = mexes[i].x,y = mexes[i].y, z = mexes[i].z, inc = mexes[i].metal, threat = 0, value = 0,tfloor = 0, mtype = "?", e = 0, solared = false} -- just adding a claimer and threat.
         reverselookuptab[tostring(mexes[i].x) .. "," .. tostring(mexes[i].z)] = i -- we'll use this to quickly look up which mex is what index based on coordinate.
       end
       avgmetal = totalmetal/#mexes
@@ -1025,6 +1076,15 @@ end
       if minc > effectiveeinc and minc-mexp > 0 then
         local timetostall = elv / (minc-effectiveeinc)
         Spring.Echo("[ECOMONITOR] WARNING: metal income outpaces energy income!\nNeeded: " .. minc-effectiveeinc .. "\nTime until stall: " .. timetostall)
+        stalling = true
+        if timetostall < 50 then
+          myassignedcons.wanted.emergency = math.ceil((minc-effectiveinc)/2)--here!
+        else
+          myassignedcons.wanted.emergency = 0
+        end
+      else
+        stalling = false
+        myassignedcons.wanted.emergency = 0
       end
       energyexpenses.buffer = math.ceil(minc * 0.2)
       if minc-mpull > 0 and facplopped then -- bp demand
@@ -1035,6 +1095,8 @@ end
       if effectiveeinc - energyexpenses.buffer < 0 then -- energy demand
         mydemand.energy = math.abs(effectiveeinc-energyexpenses.buffer)
         Spring.Echo("my energy demand: " .. mydemand.energy)
+      else
+        mydemand.energy = 0
       end
     end
     if f%90 == 0 then -- Update Threats
