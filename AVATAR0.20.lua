@@ -813,7 +813,7 @@ end
             end
           end
         end
-        if num == 10 then
+        if num == 7 then
           num = 0
           coroutine.yield() -- yield until next frame
         end
@@ -867,6 +867,7 @@ end
         end
       end
     end
+    checkmexes = nil
   end
   
   local function initalize()
@@ -996,7 +997,7 @@ end
       initframe = f
       chckunits = coroutine.create(CheckUnits)
     end
-    if tostring(coroutine.status(checkmexes)) == "suspended" then
+    if checkmexes and tostring(coroutine.status(checkmexes)) == "suspended" then
       coroutine.resume(checkmexes)
     end
     if f == initframe + 200 and checkunits == false then
