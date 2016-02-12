@@ -26,7 +26,18 @@ function widget:DrawWorld()
           gl.Translate(data.x, data.y, data.z)
           gl.Billboard()
           gl.Color(0.7, 0.9, 0.7, 1.0)
-          gl.Text("Grid Num: " .. Spring.GetUnitRulesParams(data.id,"gridNumber"),-10.0,0,12,"v")
+          local ya = 0
+          for name2,data2 in pairs(Spring.GetUnitRulesParams(data.id,"gridNumber")) do
+                if tostring(data2) == "<table>" then
+                    for name3,data3 in pairs(data2) do
+                        data2string = tostring("\t" .. name3 .. ": " .. data3)
+                    end
+                else
+                    data2string = tostring(data2)
+                end
+                gl.Text(name2 .. ": " .. data2string,-10.0,ya,12,"v")
+                ya = ya - 12
+            end
           gl.PopMatrix()
       end
     end
