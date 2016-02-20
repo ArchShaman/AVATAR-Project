@@ -11,7 +11,10 @@ function widget:GetInfo()
       enabled   = true,
     }
   end
-  local ecoman = false
+  local potentialmexes = 0
+  local checkmexes
+  local maxeco = 5 -- 5x energy!
+  local facplopped = false
   local chckunits
   local initframe = 0
   local checkunits = false
@@ -19,11 +22,12 @@ function widget:GetInfo()
   local preload = false
   local floormap = false
   local threatdistance = 0
+  local homemex = 0
   if Game.mapX + Game.mapY < 10 then -- tiny map!
     threatdistance = 600
   else
     if Game.mapX + Game.mapY < 20 then -- small map
-      threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*650
+      threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*670
     else
       if Game.mapX + Game.mapY < 30 then -- medium map iceland is about 1800 for reference. produces a nice grid.
         threatdistance = math.ceil((Game.mapX+Game.mapY)/10)*550
@@ -32,12 +36,17 @@ function widget:GetInfo()
       end
     end
   end
+  local totalcons = 0
+  local stalling = false
   local claimedmexes = {}
   local mybasebuilder = 0
   local originalfloormap = {}
   local reachabilitytab = {}
   local maxvalue = 0
   local minvalue = 99999
+  local connected = {}
+  local defenses = {} -- id = mexid
+  local grid = {homegrid = 1,mygrid = {},wanted = {}} -- contains points of interest.
   local movetypes = {bot = {id = UnitDefNames["armrectr"].moveDef.id, tar = 90},
                      veh = {id = UnitDefNames["corned"].moveDef.id, tar = 180},
                      amph = {id = UnitDefNames["amphcon"].moveDef.id, tar = 120},
@@ -53,7 +62,7 @@ function widget:GetInfo()
   local mode = "debug"
   --variables--
   local reverselookuptab = {}
-  
+  local tempbp = {total = 0,cons = {}} -- cons[unitID] = {node = nodeid}
   local builddefs = {mex   = UnitDefNames["cormex"].id,
                  solar = UnitDefNames["armsolar"].id,
                  wind  = UnitDefNames["armwin"].id,
@@ -62,8 +71,19 @@ function widget:GetInfo()
                  radar = UnitDefNames["corrad"].id,
                  nano  = UnitDefNames["armnanotc"].id,
                  urch  = UnitDefNames["turrettorp"].id,
-                 star  = UnitDefNames["armdeva"].id
+                 star  = UnitDefNames["armdeva"].id,
+                 stor  = UnitDefNames["armmstor"].id,
+                 singu = UnitDefNames["cafus"].id
                  }
+  
+  local defenseval = {llt  = 15,
+                      star = 45,
+                      def  = 12,
+                      urch = 12,
+                      corllt = 15,
+                      armdeva = 45,
+                      corrl = 12,
+                      turrettorp = 12}
 
   local factorydefs = {
     cloak  = UnitDefNames["factorycloak"].id,
@@ -92,8 +112,6 @@ function widget:GetInfo()
                 hovr   = UnitDefNames["corch"].id}
   
   local globalthreat = 100 -- how scary is the world? 100 = neutral, - 100 = i own the world 200+ = o.o
-  
-  local nodes = {} -- bp nodes
   local mydemand = {bp = 0, expander = 0, energy = 0} -- total demand
   local myteamid = 0
   local mycons = {}
@@ -103,7 +121,7 @@ function widget:GetInfo()
   local threatgrid = {}
   local reversethreat = {}
   local initalized = false
-  
+  local myassignedcons = {total = {defense = 0,expansion = 0,eco = 0,grid = 0, unassigned = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0, emergency = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
   local function toboolean(ob)
     if ob == nil then
       return false
@@ -118,6 +136,18 @@ function widget:GetInfo()
       return false
     end
     return false
+  end
+  
+  local function max(tab)
+    local max = -99999
+    local maxv
+    for k,v in pairs(tab) do
+      if v > max then
+        max = v
+        maxv = tostring(k)
+      end
+    end
+    return max,maxv
   end
   
   local function IsCom(id)
@@ -151,18 +181,30 @@ function widget:GetInfo()
   
   local function SolarOrWind(x,y) -- determine if solar or wind is better at this position.
     local z = Spring.GetGroundHeight(x,y)
-    if z <= -10 then
-      return "wind" -- wind is 1.2, multiply that by 2 = 2.4 vs 2.0. no extra work needed. Wind: 29.16m/e vs 37.5
+    if z <= -12 then
+      return "wind" -- tidal is 1.2, multiply that by 2 = 2.4 vs 2.0. no extra work needed. Wind: 29.16m/e vs 37.5
     end
-    if z > -10 and z < 0 then
-      return "none" -- Don't build e here.
+    local windMin = spGetGameRulesParam("WindMin")
+    local windMax = spGetGameRulesParam("WindMax")
+    local windGroundMin = Spring.GetGameRulesParam("WindGroundMin")
+    local windGroundExtreme = Spring.GetGameRulesParam("WindGroundExtreme")
+    local windGroundSlope = Spring.GetGameRulesParam("WindSlope")
+    local minWindIncome = windMin+(windMax-windMin)*windGroundSlope*(z - windGroundMin)/windGroundExtreme
+    Spring.Echo("[AVATAR:SolarOrWind] Minimum income for " .. x,y .. " is " .. minWindIncome)
+    if minWindIncome*2 > 2.0 then
+      return "wind"
+    else
+      result = Spring.TestBuildOrder(builddefs.solar,x,z,y,0)
+      if result ~= 0 then
+        return "solar"
+      else
+        return "none"
     end
-    
   end
   
   local function IsInRadius(x,y,tx,ty,rad)
     distance = ((tx - x)^2 + (ty - y)^2)^0.5
-    if distance - rad <= rad then
+    if distance - rad <= 0 then
       return true
     else
       return false
@@ -176,7 +218,24 @@ function widget:GetInfo()
   end
   
   local function CheckNodes(id)
-    
+    local x,y,z = Spring.GetUnitPosition(id)
+    local nearbyunits = Spring.GetUnitsInSphere(x,y,z,600,Spring.GetMyTeamID()) -- x,y,z,radius,myteam
+    local unitdefid = 0
+    for _,myid in pairs(nearbyunits) do
+      if
+      unitdefid = Spring.GetUnitDefID(myid)
+      if unitdefid == builddefs.nano then
+        nodes[id].bp.bp = nodes[id].bp.bp + 10
+        connected[myid] = {mtype = 'bp',connectedto = id}
+      end
+      if unitdefid == builddefs.llt and mexestable[id] then
+        nodes[id].defense = nodes[id].defense + defenseval.llt
+        connected[myid] = {mtype = 'defense',connectedto = id}
+      end
+      if unitdefid == builddefs.def then
+        nodes[id].defense = nodes[id].defense + defenseval.def
+      end
+    end
   end
   
   local function CheckUnits()
@@ -193,7 +252,7 @@ function widget:GetInfo()
       local isfact,mtype = IsFac(id)
       if isfact then
         local x,y,z = Spring.GetUnitPosition(id)
-        table.insert(nodes,#nodes+1,{bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = id},value = 600})
+        nodes[id] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
       end
     end
   end
@@ -201,9 +260,9 @@ function widget:GetInfo()
   local function RecalcFloorMap()
     for id,data in pairs(mexestable) do
       if globalthreat > 100 then
-        data.tfloor = originalfloormap[id] + ((globalthreat/100)+1)
+        data.tfloor = originalfloormap[id] + ((globalthreat/100)*2.5)
       elseif globalthreat < 100 then
-        data.tfloor = originalfloormap[id] - math.abs((globalthreat/100))
+        data.tfloor = originalfloormap[id] - math.abs((globalthreat/100)*1.55)
       end
     end
   end
@@ -251,6 +310,44 @@ function widget:GetInfo()
     return close
   end
   
+  local function GetNearestReachableVulnerableMex(unitID)
+    local defid = Spring.GetUnitDefID(unitID)
+    local x,z,y = Spring.GetUnitPosition(unitID)
+    local distance,closest = 0
+    local closestdistance = 99999999
+    local moveid = UnitDefs[defid].moveDef.id
+    local reachable
+    for num,data in pairs(mexestable) do
+      if data.claimed == "ally" and data.threat > 10 then
+        reachable = IsTargetReachable(moveid,x,z,y,data.x,data.y,data.z,90)
+        distance = ((ox - tx)^2 + (oz - tz)^2)^0.5 / ((data.value*0.85) * (data.threat/75))
+        if distance < closestdistance and reachable == "reach" then
+          closest = num
+        end
+      end
+    end
+    return closest
+  end
+  
+  local function GetNearestReachableMexSolar(unitID)
+    local defid = Spring.GetUnitDefID(unitID)
+    local x,z,y = Spring.GetUnitPosition(unitID)
+    local distance,closest = 0
+    local closestdistance = 99999999
+    local moveid = UnitDefs[defid].moveDef.id
+    local reachable
+    for num,data in pairs(mexestable) do
+      if data.claimed == "ally" and data.solared == false then
+        reachable = IsTargetReachable(moveid,x,z,y,data.x,data.y,data.z,90)
+        distance = ((ox - tx)^2 + (oz - tz)^2)^0.5 / (data.value*0.85)
+        if distance < closestdistance and reachable == "reach" then
+          closest = num
+        end
+      end
+    end
+    return closest
+  end
+  
   local function GetFurthestMex(x,y)
     local distance = 0
     local furthest = 0
@@ -267,7 +364,29 @@ function widget:GetInfo()
   end
   
   local function DoSmartPlacement(x,y,btype)
-    local footx,footy = 0
+    local footx,footy = 0 -- foot is 16 elmos big.
+    footx = UnitDefs[btype].footprintX * 16
+    footy = UnitDefs[btype].footprintZ * 16
+    Spring.Echo("Building is " .. footx,footy)
+    local xtry,ytry = -1
+    local z = 0
+    local result = 0
+    for i=1,10 do
+      x = ox+(footx*16*xtry)
+      y = oy+(footz*16*ytry)
+      xtry = xtry + 1
+      if xtry == 2 then
+        xtry = -1
+        ytry = ytry + 1
+      end
+      Spring.Echo("[SMARTBUILD] Trying " .. x,y)
+      z = Spring.GetGroundHeight(x,y)
+      result = Spring.TestBuildOrder(btype,x,z,y,0)
+      if result ~= 0 then
+        return result,x,z,y
+      end
+    end
+    return 0,ox,oy
   end
   
   local function UpdateFloorMap(uid,threat)
@@ -298,7 +417,7 @@ function widget:GetInfo()
     if result == 0 then -- start smart placement
       result,x,y,z = DoSmartPlacement(x,y,btype)
       if result ~= 0 then
-        return x,y,z
+        return "success",x,y,z
       end
     end
     if result == 0 then
@@ -320,30 +439,32 @@ function widget:GetInfo()
       if result == 0 then
         return "failed"
       else
-        return x,y,z
+        return "success",x,y,z
       end
     end
+  end
+  
+  local function GetNearestReachableVulnerableMex(unitID)
+    
   end
   
   local function GetNearestReachableMex(unitID)
     local defid = Spring.GetUnitDefID(unitID)
     local x,z,y = Spring.GetUnitPosition(unitID)
-    local distances = {}
+    local distance,closest = 0
+    local closestdistance = 99999999
+    local moveid = UnitDefs[defid].moveDef.id
+    local reachable
     for num,data in pairs(mexestable) do
       if data.claimed == "none" then
-        if x > data.x then
-          distances[num] = x - data.x
-        else
-          distances[num] = data.x - x
+        reachable = IsTargetReachable(moveid,x,z,y,data.x,data.y,data.z,90)
+        distance = ((ox - tx)^2 + (oz - tz)^2)^0.5 / (data.value*0.85)
+        if distance < closestdistance and reachable == "reach" then
+          closest = num
         end
-        if y > data.z then
-          distances[num] = distances[num] + (y - data.z)
-        else
-          distances[num] = distances[num] + (data.z - y)
-        end
-        distances[num] = distances[num] * data.value
       end
     end
+    return closest
   end
   
   local function UseUrchin(x,y)
@@ -407,7 +528,7 @@ end
   
   local function CreateFloorMap()
     local distance = 0
-    local homemex = GetNearestMex(mystartpos.x,mystartpos.y)
+    homemex = GetNearestMex(mystartpos.x,mystartpos.y)
     local farmex = GetFurthestMex(mystartpos.x,mystartpos.y)
     distance = 150/(math.abs(mexestable[homemex].x - mexestable[farmex].x) + math.abs(mexestable[homemex].z-mexestable[farmex].z))
     Spring.Echo("[FloorMap] Mult: " .. distance)
@@ -434,9 +555,11 @@ end
       end
       if data.threat >= 100 and data.claim == "none" then
         data.claim = "unviable"
+        potentialmexes = potentialmexes - 1
       end
       if data.threat <= 99 and data.claim == "unviable" then
         data.claim = "none"
+        potentialmexes = potentialmexes + 1
       end
     end
   end
@@ -471,21 +594,35 @@ end
       end
     end
     if unitTeam == Spring.GetMyTeamID() then
-      if IsCon(unitID) then
+      if IsCon(unitID) and mycons[unitID] == nil then
         mycons[unitID] = {id = unitID,task = "none",params = {},mtype = "unassigned"}
+        myassignedcons.total.unassigned = myassignedcons.total.unassigned + 1
       end
+    end
+    isfac,mtype = IsFac(unitID)
+    if isfac then
+      local x,y,z = Spring.GetUnitPosition(unitID)
+      nodes[unitID] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
     end
   end
   
   function widget:UnitIdle(unitID, unitDefID, unitTeam)
     if unitTeam == Spring.GetMyTeamID() and mycons[unitID] then
---      AssignTask(unitID)
+      AssignTask(unitID)
     end
   end
   
   function widget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
-    if unitTeam == Spring.GetMyTeamID() and IsCom(unitID) then
-      mycoms[unitID] = {id = unitID,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(unitID, "facplop"))}
+    if unitTeam == Spring.GetMyTeamID() then
+      if IsCom(unitID) then
+        mycoms[unitID] = {id = unitID,task = "none", facplop = toboolean(Spring.GetUnitRulesParam(unitID, "facplop"))}
+      end
+      _,_,_,_,bprog = Spring.GetUnitHealth(unitID)
+      isfact,mtype = IsFac(unitID)
+      if isfact and bprog == 1 then
+        local x,y,z = Spring.GetUnitPosition(unitID)
+        nodes[unitID] = {bp = {bp = 10,wanted = 10},defense = 0,rad = 600,energy = 0.3,metal = 0.3,coords = {x = x, y = y, z = z},type = mtype,units = {id = unitID},value = 600}
+      end
     end
   end
   
@@ -506,13 +643,18 @@ end
       end
     end
     if Spring.GetUnitAllyTeam(unitTeam) == Spring.GetMyAllyTeamID() then
-      globalthreat = globalthreat + ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost))
+      globalthreat = globalthreat + ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost)*1.25)
+      if connected[unitID] then
+        if connected[unitID].mtype == "defense" then
+          
+        end
+      end
     else
-      globalthreat = globalthreat - ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost))
+      globalthreat = globalthreat - ((UnitDefs[unitDefID].health/UnitDefs[unitDefID].metalCost)*1.25)
     end
-    if mycoms[unitID] then
-      mycoms[unitID] = nil
-    end
+    mycoms[unitID] = nil
+    nodes[unitID] = nil
+    mycons[unitID] = nil
   end
   
   function widget:UnitDamaged(unitID, unitDefID, unitTeam, damage, paralyzer, weaponDefID, projectileID, attackerID, attackerDefID, attackerTeam)
@@ -679,18 +821,20 @@ end
           end
         end
       end
-      if #nodes > 0 then
-        local x,y,z
+      if nodes then
+        local x,y,z = 0
+        local num = 0
         for id,data in pairs(nodes) do
           x = data.coords.x
           y = data.coords.y
           z = data.coords.z
+          num = num +1
           if x and Spring.IsAABBInView(x-1,y-1,z-1,x+1,y+1,z+1) then
             gl.PushMatrix()
             gl.Translate(x,y,z)
             gl.Billboard()
             gl.Color(0.75,0.75,0.75,1)
-            gl.Text(data.type .. "-" .. id .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
+            gl.Text(data.type .. "-" .. num .. ":\nbp: " .. data.bp.bp .. "\nwanted bp: " .. data.bp.wanted .. "\nDefense: " .. data.defense .. " [val: " .. data.value .. "]",-10,-12,10)
             gl.PopMatrix()
             gl.Color(1,1,1,1)
           end
@@ -700,7 +844,51 @@ end
   end
   
   local function AssignTask(unitID)
-    
+    if mycons[unitID] then
+      if mycons[unitID].mtype == "unassigned" then -- assign con job archetype -- myycons[unitID] = {id = unitID,task = "none",params = {},mtype = "unassigned"}
+        local _,best = max(myassignedcons.wanted) --{total = {defense = 0,expansion = 0,eco = 0,grid = 0}, wanted = {defense = 0, expansion = 2, eco = 0, grid = 0,emergency = 0}, priority = {defense = 0, expansion = 1, eco = 0, grid = 0}}
+        if best == "emergency" then
+          best = "eco"
+        end
+        mycons[unitID].mtype = best
+        myassignedcons.wanted[best] = myassignedcons.wanted[best] - UnitDefs[Spring.GetUnitDefID(unitID)].buildSpeed
+        myassignedcons.total[best] = myassignedcons.total[best] + UnitDefs[Spring.GetUnitDefID(unitID)].buildSpeed
+      end
+      if mycons[unitID].mtype == "expansion" and stalling ~= true then
+        local mexid = GetNearestReachableMex(unitID)
+        mexestable[mexid].claim = "targeted"
+        mycons[unitID].params = {id = mexid}
+        mycons[unitID].task = "expand @ " .. mexid
+      else
+        if stalling == true then
+          mycons[unitID].task = "emergency anti-stall"
+          local x,y,z = Spring.GetUnitPosition(unitID)
+          mycons[unitID].params = {x = x,y = y,z = z}
+        end
+        if mycons[unitID].mtype == "eco" then
+          if mydemand.bp > 10 then -- assign temp bp
+            AddToLowestNode(unitID) --Assigns this con to work this bp node.
+            return
+          end
+          local num = GetNearestReachableMexSolar(unitID) --{CMD_PRIORITY, {priority}, {"shift"}}
+          if num ~= false then
+            local result = SolarOrWind(mexestable[num].x,mexestable[num].z)
+            local r,x,y,z = FindNearestBuildArea(mexestable[num].x,mexestable[num].z,builddefs[result],200)
+            if r ~= "failed" and x then
+              Spring.GiveOrderToUnit(unitID,-(buildef[result]),{x,y,z})
+              mycons[unitID].task = "OD @" .. num
+              mycons[unitID].params = {x = x, y = y, z = z, btype = result}
+            end
+          end
+        end
+        if mycons[unitID].mtype == "grid" then -- time to work on this :D
+          
+        end
+        if mycons[unitID].mtype == "defense" then
+          local num = GetNearestReachableVulnerableMex(unitID)
+        end
+      end
+    end
   end
   
   local function CheckMexes()
@@ -708,12 +896,14 @@ end
     local revreach = {}
     local myname = ""
     local result
+    local num = 0
     for name,data in pairs(movetypes) do
       reachable[name] = {}
       myname = name
       for id,data2 in pairs(mexestable) do
         Spring.Echo("Testing mex id " .. id)
         if id ~= nil then
+          num = num + 1
           if revreach[id] == nil then
            revreach[id] = {bot = "?",veh = "?",amph = "?", spider = "?"}
           end
@@ -743,6 +933,10 @@ end
               revreach[id].spider = "outofreach"
             end
           end
+        end
+        if num == 7 then
+          num = 0
+          coroutine.yield() -- yield until next frame
         end
       end
     end
@@ -794,6 +988,7 @@ end
         end
       end
     end
+    checkmexes = nil
   end
   
   local function initalize()
@@ -824,10 +1019,11 @@ end
       for i=1, #mexes do
         Spring.Echo("Init: Metal spot " .. i .. ":\nx = " .. mexes[i].x .. "\ny = " .. mexes[i].z .. "\nincome: " .. mexes[i].metal)
         totalmetal = totalmetal + mexes[i].metal
-        mexestable[#mexestable+1] = {claim = "none",x = mexes[i].x,y = mexes[i].y, z = mexes[i].z, inc = mexes[i].metal, threat = 0, value = 0,tfloor = 0, mtype = "?"} -- just adding a claimer and threat.
+        mexestable[#mexestable+1] = {claim = "none",x = mexes[i].x,y = mexes[i].y, z = mexes[i].z, inc = mexes[i].metal, threat = 0, value = 0,tfloor = 0, mtype = "?", e = 0, solared = false,consupply = 0} -- just adding a claimer and threat.
         reverselookuptab[tostring(mexes[i].x) .. "," .. tostring(mexes[i].z)] = i -- we'll use this to quickly look up which mex is what index based on coordinate.
       end
       avgmetal = totalmetal/#mexes
+      potentialmexes = #mexes
       for _,data in pairs(mexestable) do
         data.value = data.inc/avgmetal
       end
@@ -871,7 +1067,7 @@ end
       cyclecount = cyclecount + 1
     end
     if cyclecount < 100000 then
-      Spring.Echo("[AVATAR] Init started.")
+      Spring.Echo("[AVATAR] Init started. Wait time: " .. cyclecount .. " cycles.")
       coroutine.resume(init)
     else
       Spring.Echo("[AVATAR INIT] Execution took too long. Timeout = 100000 cycles.")
@@ -893,8 +1089,7 @@ end
       Spring.Echo("[AVATAR INIT] Execution took too long. Timeout = 100000 cycles.")
       widgetHandler:RemoveWidget()
     end
-    Spring.Echo("[AVATAR] Post-init started.")
-    CheckMexes()
+    Spring.Echo("[AVATAR] Post-init started. [" .. cyclecount .. "]")
     initialized = true
   end
   
@@ -903,7 +1098,8 @@ end
       Spring.Echo("[AVATAR] Post-Initialization started")
       mystartpos.x,_,mystartpos.y = Spring.GetTeamStartPosition(myteamid)
       CreateFloorMap()
-      CheckMexes()
+      checkmexes = coroutine.create(CheckMexes)
+      coroutine.resume(checkmexes)
       local teammexes = {}
       local myallies = Spring.GetTeamList(Spring.GetMyAllyTeamID())
       for id,_ in pairs(myallies) do
@@ -916,6 +1112,7 @@ end
       for _,id2 in pairs(teammexes) do
         local x,_,y = Spring.GetUnitPosition(id2)
         mexestable[reverselookuptab[tostring(x) .. "," .. tostring(y)]].claim = "ally"
+        potentialmexes = potentialmexes - 1
         UpdateFloorMap(reverselookuptab[tostring(x) .. "," .. tostring(y)],-1)
         originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] = originalfloormap[reverselookuptab[tostring(x) .. "," .. tostring(y)]] - 1
       end
@@ -923,9 +1120,15 @@ end
       initframe = f
       chckunits = coroutine.create(CheckUnits)
     end
+    if checkmexes and tostring(coroutine.status(checkmexes)) == "suspended" then
+      coroutine.resume(checkmexes)
+    end
     if f == initframe + 200 and checkunits == false then
       coroutine.resume(chckunits)
       checkunits = true
+    end
+    if f%30 == 0 then -- every 5 seconds update the total desire for cons.
+      
     end
     if f == 20 and initalized == true then
       Spring.SendCommands("say a: AVATAR v" .. version .. " initalized. Mode: " .. mode)
@@ -935,20 +1138,40 @@ end
       local mlv,stor,mpull,minc,mexp,_,_,_ = Spring.GetTeamResources(myteamid,"metal")
       local elv,_,epull,einc,eexp,_,_,_ = Spring.GetTeamResources(myteamid,"energy")
       energyexpenses.overdrive = Spring.GetTeamRulesParam(Spring.GetMyTeamID(), "OD_energyOverdrive") or 0
-      local effectiveeinc = einc - eexp -energyexpenses.overdrive
+      local bpcost = 0
+      if mpull > 0 then -- I'm building something somewhere.
+        if mpull > minc then
+          bpcost = minc
+        else
+          bpcost = mpull
+        end
+      end
+      Spring.Echo("bp used: " .. bpcost)
+      local effectiveeinc = einc -energyexpenses.overdrive - bpcost
       if minc > effectiveeinc and minc-mexp > 0 then
         local timetostall = elv / (minc-effectiveeinc)
         Spring.Echo("[ECOMONITOR] WARNING: metal income outpaces energy income!\nNeeded: " .. minc-effectiveeinc .. "\nTime until stall: " .. timetostall)
+        stalling = true
+        if timetostall < 50 then
+          myassignedcons.wanted.emergency = math.ceil((minc-effectiveinc)/2)--here!
+        else
+          myassignedcons.wanted.emergency = 0
+        end
+      else
+        stalling = false
+        myassignedcons.wanted.emergency = 0
       end
-      energyexpenses.buffer = math.ceil(minc * 0.2) + 2
-      if minc-mexp > 0 and facplopped then -- bp demand
-        mydemand.bp = minc-mpull-myeco.bp
+      energyexpenses.buffer = math.ceil(minc * 0.2)
+      if minc-mpull > 0 and facplopped then -- bp demand
+        mydemand.bp = minc-mpull
         Spring.Echo("[ECOMONITOR] BP needed: " .. mydemand.bp)
       end
-      Spring.Echo("[ECOMONITOR] effective E inc: " .. effectiveeinc)
+      --Spring.Echo("[ECOMONITOR] effective E inc: " .. effectiveeinc) --2/12: This is now stable! Yay!
       if effectiveeinc - energyexpenses.buffer < 0 then -- energy demand
-        mydemand.energy = math.abs(effectiveeinc-energyexpenses.buffer-minc)
+        mydemand.energy = math.abs(effectiveeinc-energyexpenses.buffer)
         Spring.Echo("my energy demand: " .. mydemand.energy)
+      else
+        mydemand.energy = 0
       end
     end
     if f%90 == 0 then -- Update Threats
@@ -973,7 +1196,7 @@ end
           if globalthreat + math.abs(globalthreat*0.9) + globalthreat +2 > 100 then
             globalthreat = 100
           end
-          globalthreat = math.abs(globalthreat*0.9) + globalthreat +2
+          globalthreat = math.abs(globalthreat*0.9) + globalthreat +0.5
         elseif globalthreat > 0 and globalthreat < 100 then
           globalthreat = globalthreat + (globalthreat*0.9) +0.5
         end
